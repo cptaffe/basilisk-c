@@ -1,19 +1,23 @@
 #include <stdio.h> // printf, putc
-#include <stdlib.h> // malloc, exit
+#include <stdlib.h> // calloc, exit
 #include "tok.h" // token header
+#include "gerr.h" // general errors
 
 // Lexer for some lisp-like langauge
 
 // Lexer struct
-typedef struct Lexer {
+typedef struct {
 	FILE *stream; // stream of file
 	char *name; // name of file
+	char *prog; // name of program
 	char *str; // string read
 	int e; // end of string
 	int b; // begenning of string
 	int length;
 	int lineNum;
 	int parenDepth;
+	int errors;
+	int warns;
 } Lexer;
 
 // Errors
@@ -21,29 +25,29 @@ typedef struct Lexer {
 // err and terr are of equal magnitude, but terr exits in case
 // one cannot return -1 to the state machine.
 
-// prints configurable error
-int _err (Lexer *l, char *str, int c, int b, char *err) {
-	return fprintf(stderr, "\033[1m%s:%d:%d \033[%dm%s:\033[0m\033[%dm %s\033[0m\n", l->name, l->lineNum, l->e, c, err, b, str);
-}
-
 int _diag (Lexer *l) {
-	int b;
-	if (l->e > 20){
-		b = (l->e - 17); fputs("...", stderr);
-	} else {b = 0;}
+	int b = 0;
 	for (int i = b; i < l->e; i++) {
 		putc(l->str[i], stderr);
 	}; putc('\n', stderr);
 	for (int i = b; i < (l->e-1); i++) {
 		putc(' ', stderr);
-	}; fputs("\033[32m^\033[0m\n", stderr);
+	}; fputs("\033[1m\033[32m^\033[0m\n", stderr);
 	return 0;
+}
+
+// lerr (lex error), a simplified wrapper for _err
+void lerr(Lexer *l, char *str, int c, int b, char *err, int diag) {
+	flockfile(stderr); // aquire lock for stdout
+	_err(l->errors, l->warns, l->name, l->lineNum, l->e, str, c, b, err);
+	if (diag){_diag(l);}
+	funlockfile(stderr); // release lock
 }
 
 // general errors
 void err (Lexer *l, char *str, int diag) {
-	_err(l, str, 31, 1, "error");
-	if (diag){_diag(l);}
+	l->errors++; // increment error count
+	lerr(l, str, 31, 1, "error", diag);
 }
 
 // terminal errors
@@ -54,14 +58,13 @@ void terr (Lexer *l, char *str, int diag) {
 
 // warnings
 void warn (Lexer *l, char *str, int diag) {
-	_err(l, str, 35, 1, "warning");
-	if (diag){_diag(l);}
+	l->warns++; // increment error count
+	lerr(l, str, 35, 1, "warning", diag);
 }
 
 // note
 void note (Lexer *l, char *str, int diag) {
-	_err(l, str, 30, 0, "note");
-	if (diag){_diag(l);}
+	lerr(l, str, 30, 0, "note", diag);
 }
 
 // Emit
@@ -71,20 +74,24 @@ void note (Lexer *l, char *str, int diag) {
 
 // emit
 int emit (Lexer *l, int n) {
-	printf("%d:", n);
+	const char delim = ':'; // set delim to ':'
+	printf("%d", n); putc(delim, stdout);
+	printf("%d", l->lineNum); putc(delim, stdout);
+	printf("%d", l->e); putc(delim, stdout);
 	for (int i = l->b; i < l->e; i++) {
 		putc(l->str[i], stdout);
 	}
-	putc('\n', stdout);
+	putc(delim, stdout);
 	l->b = l->e; // shifts begin to end pos
+	fflush(stdout); // flushes buffer to stdout
 	return 0;
 }
 
 // emits and records new line
 int nemit (Lexer *l, int n) {
-	l->lineNum++;
-	l->e = 0; l->b = 0;
-	return emit(l, n);
+	int e = emit(l, n);
+	l->lineNum++; l->e = 0; l->b = 0;
+	return e;
 }
 
 // Next & Backup
@@ -201,7 +208,6 @@ int lexOp (Lexer *l) {
 
 // Lexer init
 // lexers is an array of all lexers
-// gerr is for general errors encountered in main.
 // main creates a lexer struct and acts as a state machine,
 // calling the state returned by the last state function
 // until that state is -1, then exiting.
@@ -209,30 +215,23 @@ int lexOp (Lexer *l) {
 // Set up lex func array
 lex lexers[3] = {lexAll, lexList, lexOp};
 
-// general errors
-int gerr (char *str) {
-	printf("%s: error: %s", "basilisk", str);
-	exit(1);
-}
-
 int main (int argc, char *argv[]) {
 	// Init lexer
 	Lexer l;
-	l.str = malloc(100 * sizeof(char));
+	l.str = calloc(100, sizeof(char)); // zeroed memory
 	if (l.str == NULL) {
-		perror("memory allocation failure");
+		gperr(); return 1;
 	}
-	l.b = 0;
-	l.e = 0;
 	l.length = 100;
 	l.lineNum = 1; // first line
+	l.prog = argv[0]; // set prog to program name
 
 	// check for filename
 	if (argc > 1) {
 		l.name = argv[1];
 		l.stream = fopen(l.name, "r"); // open file in read mode
 		if (l.stream == NULL) {
-			perror("file error");
+			gperr(); return 1;
 		}
 	} else {
 		// default to stdin
@@ -245,5 +244,11 @@ int main (int argc, char *argv[]) {
 		f = lexers[f](&l);
 	}
 
-	note(&l, "the end is nigh", 0);
+	fclose(l.stream); // close input
+
+	if (l.errors > 0 || l.warns > 0) {
+		char str[30];
+		sprintf(str, "%d errors, %d warning.", l.errors, l.warns);
+		gnote(str); // general note
+	}
 }

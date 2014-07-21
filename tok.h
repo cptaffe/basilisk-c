@@ -1,10 +1,3 @@
-
-// Token
-typedef struct {
-	char *tok;
-	int type;
-} Token;
-
 // miscilaneous tokens
 const int itemErr = 0;
 const int itemBeginList = 1;
