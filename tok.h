@@ -6,13 +6,15 @@ typedef struct {
 } Token;
 
 // miscilaneous tokens
-const int itemSpace = 0;
+const int itemErr = 0;
 const int itemBeginList = 1;
 const int itemEndList = 2;
 
+const int itemSpace = 10;
+const int itemNewLine = 11;
+
 // operation tokens
-const int itemAdd = 10;
-const int itemSub = 11;
+const int itemOp = 20;
 
 // data tokens
-const int itemNum = 20;
+const int itemNum = 30;
