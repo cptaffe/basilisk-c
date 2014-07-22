@@ -1,5 +1,7 @@
 #include <stdio.h> // printf, putc
 #include <stdlib.h> // calloc, exit
+#include <unistd.h> // sleep function DEBUG!
+#include <strings.h> // strcpy
 #include "tok.h" // token header
 #include "gerr.h" // general errors
 
@@ -26,13 +28,17 @@ typedef struct {
 // one cannot return -1 to the state machine.
 
 int _diag (Lexer *l) {
-	int b = 0;
-	for (int i = b; i < l->e; i++) {
-		putc(l->str[i], stderr);
-	}; putc('\n', stderr);
-	for (int i = b; i < (l->e-1); i++) {
-		putc(' ', stderr);
-	}; fputs("\033[1m\033[32m^\033[0m\n", stderr);
+	char str[100]; // 100 characters
+	char *arrow = "\033[1m\033[32m^\033[0m\n";
+	int i;
+	for (i = 0; i < l->e; i++) {
+		str[i] = l->str[i];
+	}; str[i++] = '\n';
+	for (int j = 0; j < (l->e-1); j++) {
+		str[i++] = ' ';
+	}; strcpy(&str[i++], arrow);
+	i += (strlen(arrow) / sizeof(char));
+	fwrite(str, i, sizeof(char), stderr);
 	return 0;
 }
 
@@ -42,6 +48,7 @@ void lerr(Lexer *l, char *str, int c, int b, char *err, int diag) {
 	_err(l->errors, l->warns, l->name, l->lineNum, l->e, str, c, b, err);
 	if (diag){_diag(l);}
 	funlockfile(stderr); // release lock
+	//sleep(2);
 }
 
 // general errors
@@ -164,8 +171,9 @@ int lexList (Lexer *l) {
 		if (c == '\n'){nemit(l, itemNewLine);} // mark newline
 		err(l, "list prematurely ends", 1); return 0;
 	}
-	if (c == '+' || c == '-' || c == '*' || c == '/') {
-		emit(l, itemOp);
+	int op;
+	if ((op = isOp(c))) {
+		emit(l, op);
 		return 2; // lexOp
 	}else {err(l, "not an operation", 1);}
 	return 1; // should never reach here.

@@ -2,6 +2,7 @@
 #include <stdlib.h> // calloc, exit, etc.
 #include "tok.h" // token header
 #include "gerr.h" // general errors
+#include "ast.h" // abstract syntax tree
 
 // Parser for some lisp-like langauge
 
@@ -22,6 +23,8 @@ typedef struct {
 	int errors;
 	int warns;
 	int parenDepth;
+	Tree *root; // root of tree
+	Tree *tree; // current location in tree
 } Parser;
 
 // Errors
@@ -140,7 +143,7 @@ int parseAll(Parser *p) {
 int parseList(Parser *p) {
 	Token *t;
 	while((t = next(p)) != NULL){
-		if (t->type == itemOp) {
+		if (isOpCode(t->type)) {
 			puts(t->str); putc(':', stdout);
 			return 2; // parseOp
 		}
@@ -187,6 +190,15 @@ int main (int argc, char *argv[]) {
 		p.name = "stdin";
 		p.stream = stdin;
 	}
+
+	// create root of ast
+	p.root = malloc(sizeof(Tree));
+	p.root->node = NULL; // no node on root
+	p.root->tree = malloc(sizeof(List)); // tree
+	const int len = 3;
+	p.root->tree->tree = calloc(len, sizeof(Node)); // realloc for more nodes
+	p.root->tree->len = len;
+	p.tree = p.root; // equate root to tree.
 
 	// state machine
 	for (int f = 0; f != -1;) {
