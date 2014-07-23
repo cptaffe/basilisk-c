@@ -36,7 +36,8 @@ typedef struct {
 // perr (parse error), a simplified wrapper for _err
 void perr(Parser *p, Token *t, char *str, int c, int b, char *err, int diag) {
 	flockfile(stderr);
-	_err(p->errors, p->warns, p->name, t->line, t->ch, str, c, b, err);
+	Error ptr = { .read = t->str, .rdlen = &t->ch, .line = t->line, .ch = t->ch, .c = c, .b = b, .diag = diag, .str = str, .err = err, .name = p->name, .stream = stderr };
+	_err(&ptr);
 	// if (diag){_diag(p, t);}
 	funlockfile(stderr); // release lock
 }
