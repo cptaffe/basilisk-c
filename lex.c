@@ -1,6 +1,5 @@
 #include <stdio.h> // printf, putc
 #include <stdlib.h> // calloc, exit
-#include <unistd.h> // sleep function DEBUG!
 #include <strings.h> // strcpy
 #include "tok.h" // token header
 #include "gerr.h" // general errors
@@ -10,8 +9,8 @@
 // Lexer struct
 typedef struct {
 	FILE *stream; // stream of file
+	FILE *outstream; // stream out
 	char *name; // name of file
-	char *prog; // name of program
 	char *str; // string read
 	int e; // end of string
 	int b; // begenning of string
@@ -20,6 +19,7 @@ typedef struct {
 	int parenDepth;
 	int errors;
 	int warns;
+	ErrorStack *err; // error buffer
 } Lexer;
 
 // Errors
@@ -27,28 +27,74 @@ typedef struct {
 // err and terr are of equal magnitude, but terr exits in case
 // one cannot return -1 to the state machine.
 
-int _diag (Lexer *l) {
-	char str[100]; // 100 characters
-	char *arrow = "\033[1m\033[32m^\033[0m\n";
-	int i;
-	for (i = 0; i < l->e; i++) {
-		str[i] = l->str[i];
-	}; str[i++] = '\n';
-	for (int j = 0; j < (l->e-1); j++) {
-		str[i++] = ' ';
-	}; strcpy(&str[i++], arrow);
-	i += (strlen(arrow) / sizeof(char));
-	fwrite(str, i, sizeof(char), stderr);
-	return 0;
+// print stack length DEBUG!
+void dbprint (Lexer *l, const char *pref) {
+	char *str = malloc(30 * sizeof(char));
+	int i = sprintf(str, "%s: ", pref);
+	i += sprintf((str + i), "stack len: %d", l->err->len);
+	sprintf((str + i), " max: %d.", l->err->max);
+	gerr(str);
+	free(str);
 }
 
-// lerr (lex error), a simplified wrapper for _err
-void lerr(Lexer *l, char *str, int c, int b, char *err, int diag) {
-	flockfile(stderr); // aquire lock for stdout
-	_err(l->errors, l->warns, l->name, l->lineNum, l->e, str, c, b, err);
-	if (diag){_diag(l);}
+// qerr (Que Errors)
+// called on nemit (newline emit) so that all of l.str is avaliable
+// no strcpy or pointer update is needed, because the string is stored
+// in the Lexer struct.
+void flusherr (Lexer *l) {
+	// call _err on all Errors
+	//dbprint(l, "flush");
+	int len = l->err->len;
+	if (len == 0){gerr("no errors to emit."); return;}
+	else {char c[30]; sprintf(c, "len: %d", len); gnote(c);}
+	flockfile(stderr); // aquire lock
+	Error *que[len];
+	for (int i = 0; i < len; i++) {
+		Error *err = poperr(l->err); // pop error
+		if (err == NULL){gterr("poperr didn't pop."); return;}
+		err->stream = stderr;
+		puts("TEST...");
+		_err(err);
+		que[i] = err;
+	}
+	for (int i = len; i > 0; i--) {
+		Error *err = que[i-1];
+		_err(err); // signal error
+		// free allocated errors
+		free(err->str); // free str char []
+		free(err->err); // free err char []
+		free(err->name); // free err char []
+	}
 	funlockfile(stderr); // release lock
-	//sleep(2);
+}
+
+// prints final error.
+void finerr (Lexer *l) {
+	if (l->errors > 0 || l->warns > 0) {
+		char str[30];
+		sprintf(str, "%d errors, %d warning.", l->errors, l->warns);
+		gnote(str); // general note
+	} else {gnote("no errors emitted.");}
+}
+
+// lerr (lex error)
+// Stores all parameters to a buffer that is emptied when
+// qerr is called.
+void lerr (Lexer *l, char *str, int c, int b, char *err, int diag) {
+	//dbprint(l, "lex err");
+	// qerr must be called BEFORE some references expire.
+	// create error (references may go out of scope).
+	Error ptr = { .read = l->str, .rdlen = &l->e, .line = l->lineNum, .ch = l->e, .c = c, .b = b, .diag = diag, .str = str, .err = err, .name = l->name };
+
+	// push error to error stack.
+	int e = pusherr(l->err, &ptr);
+	if(!e){gterr("pusherr didn't push.");} // error check
+
+	if ((l->errors + l->warns) > maxErr) {
+		flusherr(l); // flush last errors
+		finerr(l); // final error
+		gterr("too many errors");
+	}
 }
 
 // general errors
@@ -59,7 +105,7 @@ void err (Lexer *l, char *str, int diag) {
 
 // terminal errors
 void terr (Lexer *l, char *str, int diag) {
-	err(l, str, diag); 
+	lerr(l, str, 31, 1, "fatal error", diag); 
 	exit(1); // terminates
 }
 
@@ -82,20 +128,24 @@ void note (Lexer *l, char *str, int diag) {
 // emit
 int emit (Lexer *l, int n) {
 	const char delim = ':'; // set delim to ':'
-	printf("%d", n); putc(delim, stdout);
-	printf("%d", l->lineNum); putc(delim, stdout);
-	printf("%d", l->e); putc(delim, stdout);
+	fprintf(l->outstream, "%d", n); putc(delim, l->outstream);
+	fprintf(l->outstream, "%d", l->lineNum); putc(delim, l->outstream);
+	fprintf(l->outstream, "%d", l->e); putc(delim, l->outstream);
 	for (int i = l->b; i < l->e; i++) {
-		putc(l->str[i], stdout);
+		putc(l->str[i], l->outstream);
 	}
-	putc(delim, stdout);
+	putc(delim, l->outstream);
 	l->b = l->e; // shifts begin to end pos
-	fflush(stdout); // flushes buffer to stdout
+	fflush(l->outstream); // flushes buffer to stdout
 	return 0;
 }
 
 // emits and records new line
+// This must be used when emitting a newline,
+// otherwise the newline will not be recorded as
+// an incrementation of the line number.
 int nemit (Lexer *l, int n) {
+	flusherr(l);
 	int e = emit(l, n);
 	l->lineNum++; l->e = 0; l->b = 0;
 	return e;
@@ -145,7 +195,7 @@ int lexAll (Lexer *l) {
 	char c;
 	while((c = next(l)) != EOF) {
 		if (c == '\n'){nemit(l, itemNewLine);} // mark newline
-		if (c == '(') {
+		else if (c == '(') {
 			emit(l, itemBeginList);
 			l->parenDepth++;
 			return 1;
@@ -224,15 +274,26 @@ int lexOp (Lexer *l) {
 lex lexers[3] = {lexAll, lexList, lexOp};
 
 int main (int argc, char *argv[]) {
+
 	// Init lexer
-	Lexer l;
-	l.str = calloc(100, sizeof(char)); // zeroed memory
+	Lexer l = {
+		.length = 100, // set length to 100
+		.lineNum = 1, // first line
+	};
+
+	//l.outstream = stdout;
+	l.outstream = fopen("out.txt", "w");
+	if (l.outstream == NULL){gperr();}
+
+	// NULL to signal to realloc that this is not alloc'd yet.
+	l.err = calloc(1, sizeof(ErrorStack));
+
+
+	// allocate l.length characters of space
+	l.str = calloc(l.length, sizeof(char)); // zeroed memory
 	if (l.str == NULL) {
 		gperr(); return 1;
 	}
-	l.length = 100;
-	l.lineNum = 1; // first line
-	l.prog = argv[0]; // set prog to program name
 
 	// check for filename
 	if (argc > 1) {
@@ -247,16 +308,30 @@ int main (int argc, char *argv[]) {
 		l.stream = stdin;
 	}
 
+	// DEBUG TESTING
+	for (int i = 0; i < 11; i++) {
+		for (int j = 0; j < i; j++) {
+			char c[20];
+			sprintf(c, "fuck this %d %d", i, j);
+			err(&l, c, 0);
+		}
+		flusherr(&l);
+	}
+
+	return 0;
+
 	// state machine
+	// This is where all the magic happens
 	for (int f = 0; f != -1;) {
 		f = lexers[f](&l);
 	}
 
-	fclose(l.stream); // close input
+	// Clean up by free-ing (important)
+	free(l.str);
 
-	if (l.errors > 0 || l.warns > 0) {
-		char str[30];
-		sprintf(str, "%d errors, %d warning.", l.errors, l.warns);
-		gnote(str); // general note
-	}
+	flusherr(&l); // clear last errors, if any.
+	fclose(l.stream); // close input
+	fclose(l.outstream); // close input
+
+	finerr(&l); // final err
 }
