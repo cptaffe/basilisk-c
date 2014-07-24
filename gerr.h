@@ -1,4 +1,4 @@
-#include <stdio.h>
+//#include <stdio.h>
 #include <stdlib.h> // exit
 #include <strings.h> // strerror, strcpy & strlen
 #include <errno.h> // errno
@@ -17,51 +17,76 @@ typedef struct {
 	char *str; // error text
 	char *err; // error type text
 	char *name; // name of file errors came from
-	FILE *stream;
 	// diagnostic fields
 	char *read;
 	int *rdlen;
 } Error;
 
-// _err
-// is for compile errors (not general)
-
-const int maxErr = 10; // 10 is a good amount
-
 // Gerr, Gnote, & Gperr
-// are for general errors encountered.
+// General Errors, these errors are to be used for general,
+// non-lexical errors.
+
+// function used to print all general errors.
+void _gerr (const char *str) {
+	const char *pref = "\033[1m\033[30mbasilisk:\033[0m ";
+	// + 2 is important because of null byte at end of string.
+	int size = ((strlen(pref) + strlen(str)) * sizeof(char) + 2);
+	char *msg = malloc(size);
+	strlcpy(msg, pref, size);
+	int len = strlcat(msg, str, size); // add prefix
+	len = strlcat(msg, "\n", len + 5); // add newline
+	fwrite(msg, len, sizeof(char), stderr);
+	fflush(stderr);
+}
+
+// function used to do a simple sprintf and call to _gerr.
+void _gsprerr (const char *str, const char *msg) {
+	char strg[strlen(msg) + strlen(str) + 2];
+	sprintf(strg, msg, str);
+	_gerr(strg);
+}
 
 // general terminal errors
-int gterr (char *str) {
-	char strg[100];
-	int i = sprintf(strg, "\033[1m\033[30m%s: \033[31mfatal error:\033[0m %s\n", "basilisk", str);
-	fwrite(strg, i, sizeof(char), stderr);
+void gterr (const char *str) {
+	const char *msg = "\033[1m\033[31mfatal error:\033[0m %s";
+	_gsprerr(str, msg);
 	exit(1);
 }
 
 // general errors
-int gerr (char *str) {
-	char strg[100];
-	int i = sprintf(strg, "\033[1m\033[30m%s: \033[31merror:\033[0m %s\n", "basilisk", str);
-	return fwrite(strg, i, sizeof(char), stderr);
+void gerr (const char *str) {
+	const char *msg = "\033[1m\033[31merror:\033[0m %s";
+	_gsprerr(str, msg);
 }
 
 // general perror
-int gperr () {
-	char str[50];
-	int i = sprintf(str, "\033[1m\033[30m%s: \033[31merror:\033[0m %s", "basilisk", strerror(errno));
-	return fwrite(str, i, sizeof(char), stderr);
+// Use case: realloc returned a NULL pointer, gperr will print why.
+// Used like the perror call, it prints the string associated with
+// the current errno value.
+void gperr () {
+	const char *msg = "\033[1m\033[31merror:\033[0m %s";
+	char str[strlen(msg) + 50];
+	sprintf(str, msg, strerror(errno));
+	_gerr(str);
+}
+
+// general warning
+// Use case: a helpful not of some type.
+// General notes
+void gwarn (const char *str) {
+	const char *msg = "\033[1m\033[31mwarn:\033[0m %s";
+	_gsprerr(str, msg);
 }
 
 // general note
-int gnote (char *str) {
-	char strg[100];
-	int i = sprintf(strg, "\033[1m\033[30m%s:\033[0m %s\n", "basilisk", str);
-	return fwrite(strg, i, sizeof(char), stderr);
+// Use case: a helpful not of some type.
+// General notes
+void gnote (const char *str) {
+	_gerr(str);
 }
 
 // diagnostic
-int _diag (Error *err) {
+int _diag (Error *err, FILE *stream) {
 	char str[100]; // 100 characters
 	char *arrow = "\033[1m\033[32m^\033[0m\n";
 	int i;
@@ -73,16 +98,16 @@ int _diag (Error *err) {
 		str[i++] = ' ';
 	}; strcpy(&str[i++], arrow);
 	i += (strlen(arrow) / sizeof(char));
-	fwrite(str, i, sizeof(char), err->stream);
+	fwrite(str, i, sizeof(char), stream);
 	return 0;
 }
 
 // configurable error
-int _err (Error *err) {
+int _err (Error *err, FILE *stream) {
 	char strg[100];
 	int i = sprintf(strg, "\033[1m%s:%d:%d \033[%dm%s:\033[0m\033[%dm %s\033[0m\n", err->name, err->line, err->ch, err->c, err->err, err->b, err->str);
-	i = fwrite(strg, i, sizeof(char), err->stream);
-	if (err->diag){_diag(err);} // optional diagnostic
+	i = fwrite(strg, i, sizeof(char), stream);
+	if (err->diag){_diag(err, stream);} // optional diagnostic
 	return i;
 }
 
@@ -91,7 +116,7 @@ int _err (Error *err) {
 // pusherr is used to push errors onto a stack
 // poperr is used to pop errors from the stack
 
-const int buf = 2; // try not to realloc too much.
+const int ErrorStackBuf = 2; // try not to realloc too much.
 
 // Error stack
 typedef struct {
@@ -109,7 +134,7 @@ Error *poperr (ErrorStack *stack) {
 	err = (stack->err + stack->len); // pass reference to Error
 
 	// resize stack
-	if ((stack->max - stack->len) > buf) {
+	if ((stack->max - stack->len) > ErrorStackBuf) {
 		stack->err = realloc(stack->err, stack->len * sizeof(Error*));
 		if (stack->err == NULL){return NULL;}
 	}
@@ -123,12 +148,14 @@ int pusherr (ErrorStack *stack, Error *err) {
 
 	// automatic stack expansion.
 	if (stack->len > stack->max){
-		stack->err = realloc(stack->err, ((stack->len + buf) * sizeof(Error*)));
+		// reallocate len+buf # of Error pointer positions
+		stack->err = realloc(stack->err, ((stack->len + ErrorStackBuf) * sizeof(Error*)));
 
+		// if realloc failed, return 0.
 		if (stack->err == NULL){
 			return 0;
 		}
-		stack->max = stack->len + buf; // new max is len
+		stack->max = stack->len + ErrorStackBuf; // new max is len
 	}
 
 	// Create new error, deviod of "may go out of scope" things.
@@ -139,18 +166,17 @@ int pusherr (ErrorStack *stack, Error *err) {
 	error->c = err->c;
 	error->b = err->b;
 	error->diag = err->diag;
-	error->stream = err->stream; // copy pointer
 	if (error->diag) {
 		// copy pointers
 		error->read = err->read;
 		error->rdlen = err->rdlen;
 	}
 	// Allocate space, pointer may go out of scope.
-	error->str = calloc(100, sizeof(char)); // message limit 100 char
+	error->str = calloc(strlen(err->str), sizeof(char));
 	error->str = strcpy(error->str, err->str);
-	error->err = calloc(20, sizeof(char)); // type limit 20 char
+	error->err = calloc(strlen(err->err), sizeof(char));
 	error->err = strcpy(error->err, err->err);
-	error->name = calloc(20, sizeof(char)); // name limit 20 char
+	error->name = calloc(strlen(err->name), sizeof(char));
 	error->name = strcpy(error->name, err->name);
 
 	// Push to created space on stack
