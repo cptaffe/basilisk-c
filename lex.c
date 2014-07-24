@@ -14,6 +14,11 @@
 // lex function signature
 typedef int (*lex) (Lexer *l);
 
+int emit(Lexer *l, int n) {
+	if (n == itemNewLine){lreset(l);}
+	return _emit(l, n);
+}
+
 // looks for begenning and end of lists
 int lexAll (Lexer *l) {
 	char c;
@@ -98,6 +103,7 @@ int lexOp (Lexer *l) {
 lex lexers[3] = {lexAll, lexList, lexOp};
 
 void sighandle (int signal) {
+	if (signal == 2){gerr("fuck you man."); return;}
 	gterr(strsignal(signal));
 }
 
@@ -115,12 +121,16 @@ int main (int argc, char *argv[]) {
 	if (l.outstream == NULL){gperr(); return 1;}
 
 	// allocate ErrorStack on heap memory
-	l.err = malloc(sizeof(ErrorStack));
+	l.err = (ErrorStack *) malloc(sizeof (ErrorStack));
 	if (l.err == NULL){gperr(); return 1;}
+
+	l.err->err = NULL;
+	l.err->len = 0;
+	l.err->max = 0;
 
 
 	// allocate l.length characters of space
-	l.str = calloc(l.length, sizeof(char)); // zeroed memory
+	l.str = calloc(l.length, sizeof (char)); // zeroed memory
 	if (l.str == NULL) {gperr(); return 1;}
 
 	// check for filename
@@ -135,12 +145,12 @@ int main (int argc, char *argv[]) {
 	}
 
 	// signal handler, because wtf not? ami right?
-	for (int i = 1; i <= 31; i++){
+	/*for (int i = 1; i <= 31; i++){
 		signal(i, sighandle);
-	} // handle all the signals!
+	}*/ // handle all the signals!
 
 	// DEBUG TESTING
-	for (int i = 0; i < 11; i++) {
+	/*for (int i = 0; i < 100; i++) {
 		for (int j = 0; j < i; j++) {
 			char c[20];
 			sprintf(c, "fuck this %d %d", i, j);
@@ -148,7 +158,7 @@ int main (int argc, char *argv[]) {
 		}
 		flusherr(&l);
 	}
-	return 0;
+	return 0;*/
 
 	// state machine
 	// This is where all the magic happens

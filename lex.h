@@ -38,14 +38,19 @@ const int maxErr = 10;
 // flusherr MUST be called at nemit before the current line is
 // overwritten, otherwise the error will fail.
 
-// print stack length DEBUG!
-void dbprint (Lexer *l, const char *pref) {
-	char *str = malloc(30 * sizeof(char));
-	int i = sprintf(str, "%s: ", pref);
-	i += sprintf((str + i), "stack len: %d", l->err->len);
-	sprintf((str + i), " max: %d.", l->err->max);
-	gerr(str);
-	free(str);
+// finerr (Final Error)
+// prints final error, either emitting a gnote for the number of
+// errors and warnings or that no errors were emitted.
+void finerr (Lexer *l) {
+	if (l->errors > 0 || l->warns > 0) {
+		char str[30];
+		int i;
+		if (l->errors == 1){i = sprintf(str, "%d error, ", l->errors);}
+		else{i = sprintf(str, "%d errors, ", l->errors);}
+		if (l->warns == 1){sprintf(&str[i-1], " %d warning.", l->warns);}
+		else{sprintf(&str[i-1], " %d warnings.", l->warns);}
+		gnote(str); // general note
+	} else {gnote("no errors emitted.");}
 }
 
 // flusherr (Flush Errors)
@@ -55,8 +60,7 @@ void dbprint (Lexer *l, const char *pref) {
 void flusherr (Lexer *l) {
 	// call _err on all Errors
 	int len = l->err->len; // save length, is reduced in poperr
-	if (len == 0){gerr("no errors to emit."); return;}
-	else {char c[30]; sprintf(c, "len: %d", len); gnote(c);}
+	if (len == 0){return;}
 	// Initial checks complete
 	flockfile(l->errstream); // aquire lock
 	// Add poped errors to que
@@ -73,21 +77,16 @@ void flusherr (Lexer *l) {
 		// free allocated errors
 		free(err->str); // free str char []
 		free(err->err); // free err char []
-		free(err->name); // free err char []
+		//free(err->name); // free err char []
+		//free(err);
 	}
 	fflush(l->errstream); // just in case
 	funlockfile(l->errstream); // release lock
-}
 
-// finerr (Final Error)
-// prints final error, either emitting a gnote for the number of
-// errors and warnings or that no errors were emitted.
-void finerr (Lexer *l) {
-	if (l->errors > 0 || l->warns > 0) {
-		char str[30];
-		sprintf(str, "%d errors, %d warning.", l->errors, l->warns);
-		gnote(str); // general note
-	} else {gnote("no errors emitted.");}
+	if (l->errors >= maxErr) {
+		finerr(l); // final error
+		gterr("too many errors");
+	}
 }
 
 // lerr (lex error)
@@ -98,16 +97,10 @@ void lerr (Lexer *l, char *str, int c, int b, char *err, int diag) {
 
 	// push error to error stack.
 	int e = pusherr(l->err, &ptr);
-	if(!e){gterr("pusherr didn't push.");} // error check
+	if(e){gterr("pusherr didn't push.");} // error check
 
 	// Flush errors if above maximum que.
 	//if (l->err->len > maxQue) {flusherr(l);}
-
-	if ((l->errors + l->warns) > maxErr) {
-		flusherr(l); // flush last errors
-		finerr(l); // final error
-		gterr("too many errors");
-	}
 }
 
 // lerr Wrappers for different styles of errors.
@@ -144,7 +137,7 @@ void note (Lexer *l, char *str, int diag) {
 // error printing.
 
 // emit
-int emit (Lexer *l, int n) {
+int _emit (Lexer *l, int n) {
 	const char delim = ':'; // set delim to ':'
 	fprintf(l->outstream, "%d", n); putc(delim, l->outstream);
 	fprintf(l->outstream, "%d", l->lineNum); putc(delim, l->outstream);
@@ -173,7 +166,7 @@ void lreset (Lexer *l) {
 // next character
 char next (Lexer *l) {
 	if (l->e >= l->length){
-		l->str = realloc(l->str, (l->e + 10) * sizeof(char));
+		l->str = realloc(l->str, (l->e + 10) * sizeof (char));
 	}
 	char c;
 	if ((c = getc(l->stream)) != EOF){
