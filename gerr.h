@@ -119,6 +119,8 @@ int _err (Error *err, FILE *stream) {
 // by reference, and thusly, these errors MUST BE FLUSHED
 // before the pointer is freed or loses the information
 // it was meant to carry.
+// BAD NOTE: this bit is admitedly fucked up, but it should
+// work for legitimate amounts of errors (in my experience, it has)
 
 const int ErrorStackBuf = 5; // try not to realloc too much.
 

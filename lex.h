@@ -62,7 +62,6 @@ void flusherr (Lexer *l) {
 	int len = l->err->len; // save length, is reduced in poperr
 	if (len == 0){return;}
 	// Initial checks complete
-	flockfile(l->errstream); // aquire lock
 	// Add poped errors to que
 	Error *que[len];
 	for (int i = 0; i < len; i++) {
@@ -71,6 +70,7 @@ void flusherr (Lexer *l) {
 		que[i] = err;
 	}
 	// error poped errors in opposite order.
+	flockfile(l->errstream); // aquire lock
 	for (int i = len; i > 0; i--) {
 		Error *err = que[i-1];
 		_err(err, l->errstream); // signal error
