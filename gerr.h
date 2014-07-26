@@ -1,7 +1,13 @@
-//#include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h> // exit
 #include <strings.h> // strerror, strcpy & strlen
 #include <errno.h> // errno
+#include "stack.h"
+#include "concurrent.h" // MutexStack
+
+// Include guard.
+#ifndef GERR
+#define GERR
 
 // General Errors
 // General Errors are shared error functions.
@@ -14,6 +20,7 @@ typedef struct {
 	int c; // color # - for err type text
 	int b; // bold # (0 off, 1 on) - for message
 	int diag; // diagnostic (0 off, 1 on)
+	int past; // underline past characters
 	char *str; // error text
 	char *err; // error type text
 	char *name; // name of file errors came from
@@ -29,12 +36,12 @@ typedef struct {
 // function used to print all general errors.
 void _gerr (const char *str) {
 	const char pref[] = "\033[1m\033[30mbasilisk:\033[0m ";
-	// + 2 is important because of null byte at end of string.
-	size_t size = sizeof pref + ((strlen(str) + 5) * sizeof (char));
+	// + 1 is important because of null byte at end of string.
+	size_t size = sizeof pref + ((strlen(str) + 1) * sizeof (char));
 	char *msg = malloc(size);
 	strlcpy(msg, pref, size);
 	size_t len = strlcat(msg, str, size); // add prefix
-	len = strlcat(msg, "\n", len + 5); // add newline
+	len = strlcat(msg, "\n", len + (2 * sizeof (char))); // add newline
 	fwrite(msg, len, sizeof (char), stderr);
 	fflush(stderr);
 }
@@ -85,18 +92,40 @@ void gnote (const char *str) {
 	_gerr(str);
 }
 
+int counttabs (char *s, int len) {
+	int tabs = 0;
+	for (int i = 0; i < len; i++){
+		if (s[i] == '\t'){tabs++;}
+	}
+	return tabs;
+}
+
 // diagnostic
 int _diag (Error *err, FILE *stream) {
-	char str[100]; // 100 characters
+	char str[200]; // 100 characters
 	char arrow[] = "\033[1m\033[32m^\033[0m\n";
+	char undln[] = "\033[1m\033[32m~";
 	int i;
-	// subtracts one to account for \n character.
-	for (i = 0; i < (*err->rdlen - 1); i++) {
-		str[i] = err->read[i];
-	}; str[i++] = '\n';
-	for (int j = 0; j < (err->ch - 1); j++) {
-		str[i++] = ' ';
-	}; strcpy(&str[i++], arrow);
+	// copy content to local string
+	i = strlcpy(str, err->read, *err->rdlen + 1);
+	// append newline, only if not already appended
+	if (err->read[*err->rdlen - 1] != '\n'){
+		i = strlcat(str, "\n", (*err->rdlen + 2) * sizeof (char));
+	}
+	int tabs = counttabs(err->read, *err->rdlen); // tab count
+	int j;
+	if (err->past > 0){err->past--;} // only the number of undls
+	// fills tabs
+	for (int j = 0; j < tabs; j++) {
+		str[i] = '\t'; i+= sizeof (char);}
+	// fills spaces
+	for (; j < (err->ch - (err->past + 1)); j++) {
+		str[i] = ' '; i += sizeof (char);}
+	// fills undls
+	for (; j < (err->ch - 1); j++){
+		strlcpy(&str[i], undln, sizeof undln);
+		i += sizeof undln / sizeof (char);}
+	strlcpy(&str[i], arrow, sizeof arrow);
 	i += sizeof arrow / sizeof (char);
 	fwrite(str, i, sizeof (char), stream);
 	return 0;
@@ -119,64 +148,13 @@ int _err (Error *err, FILE *stream) {
 // by reference, and thusly, these errors MUST BE FLUSHED
 // before the pointer is freed or loses the information
 // it was meant to carry.
-// BAD NOTE: this bit is admitedly fucked up, but it should
-// work for legitimate amounts of errors (in my experience, it has)
 
-const int ErrorStackBuf = 5; // try not to realloc too much.
-
-// Error stack
-typedef struct {
-	Error *err; // stack of error pointers.
-	int len; // length of stack
-	int max;
-} ErrorStack;
-
-int resizerr (ErrorStack *stack) {
-	int grow, shrink;
-	grow = stack == NULL || stack->len >= stack->max;
-	//shrink = stack->max - stack->len > ErrorStackBuf;
-	shrink = 0;
-	if (!grow && !shrink) {return 0;}
-	
-	// reallocate len+buf # of Error pointer positions
-	int buff;
-	if (grow){buff = ErrorStackBuf;}
-	else{buff = 0;}
-	size_t size = (stack->len + buff) * sizeof (Error *);
-	stack->err = (Error *) realloc(stack->err, size);
-	if (stack->err == NULL){free(stack->err); return 1;}
-	stack->max = size / sizeof (Error *); // new max is len
-	return 0;
-}
-
-// pops error from an error stack
-Error *poperr (ErrorStack *stack) {
-	if (stack->len <= 0){return NULL;} // double check.
-
-	// resize stack
-	if(resizerr(stack)){return NULL;}
-
-	stack->len--;
-	// make the error pointer free-standing
-	Error *err;
-	err = (stack->err + stack->len); // pass reference to Error
-
-	return err; // still on heap memory, must be freed
-}
-
-// pushes error onto an error stack
-int pusherr (ErrorStack *stack, Error *err) {
-
-	// resize stack
-	int resize = resizerr(stack);
-	if(resize){return resize;}
-
-	stack->len++; // increment len
-	if (stack->len <= 0){return 1;}
-
+// create a lasting error, given an error where elements
+// will go out of scope.
+Error *_copyerr (Error *err) {
 	// Create new error
-	Error *error = (Error *) malloc(sizeof (Error)); // allocate on heap.
-	if (error == NULL){free(error); return 1;} // error check.
+	Error *error = malloc(sizeof (Error)); // allocate on heap.
+	if (error == NULL){free(error); return NULL;} // error check.
 
 	// copy ints from value
 	error->line = err->line;
@@ -188,26 +166,56 @@ int pusherr (ErrorStack *stack, Error *err) {
 		// copy pointers
 		error->read = err->read;
 		error->rdlen = err->rdlen;
+		error->past = err->past;
 	}
 	// Allocate space, pointer may go out of scope.
+	// We are using this for strlcpy so there is no overflow.
 	size_t size = 100 * sizeof (char);
 
 	error->str = (char *) malloc(size);
-	if (error->str == NULL){return 1;} // error
+	if (error->str == NULL){return NULL;} // error
 	strlcpy(error->str, err->str, (long) size);
 
 	error->err = (char *) malloc(size);
-	if (error->err == NULL){return 1;} // error
+	if (error->err == NULL){return NULL;} // error
 	strlcpy(error->err, err->err, (long) size);
 
-	// name is a trusted pointer
-	error->name = err->name;
-	/*error->name = (char *) malloc(size);
-	if (error->name == NULL){return 1;} // error
-	strlcpy(error->name, err->name, (long) size);*/
+	error->name = (char *) malloc(size);
+	if (error->name == NULL){return NULL;} // error
+	strlcpy(error->name, err->name, (long) size);
 
-	// Push to created space on stack
-	// err is an array of *Error, error is an *Error
-	*(stack->err + (stack->len - 1)) = *error; // err must be heap memory.
-	return 0;
+	return error;
 }
+
+// pops error from an error stack
+Error *poperr (Stack *stack) {
+	return (Error *) pop(stack);
+}
+
+// pushes error onto an error stack
+int pusherr (Stack *stack, Error *err) {
+	Error *error = _copyerr(err);
+	if (error == NULL) {return 1;}
+	return push(stack, (void *) error);
+}
+
+int reseterr(Stack *stack) {
+	return resetstack(stack);
+}
+
+// finerr (Final Error)
+// prints final error, either emitting a gnote for the number of
+// errors and warnings or that no errors were emitted.
+void finerr (int errors, int warns) {
+	if (errors > 0 || warns > 0) {
+		char str[30];
+		int i;
+		if (errors == 1){i = sprintf(str, "%d error, ", errors);}
+		else{i = sprintf(str, "%d errors, ", errors);}
+		if (warns == 1){sprintf(&str[i-1], " %d warning.", warns);}
+		else{sprintf(&str[i-1], " %d warnings.", warns);}
+		gnote(str); // general note
+	} else {gnote("no errors emitted.");}
+}
+
+#endif // GERR

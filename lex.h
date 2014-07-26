@@ -1,5 +1,7 @@
 #include <stdio.h> // stdio for printing.
 #include "gerr.h" // general errors
+#include "tok.h" // tokens
+#include "concurrent.h" // MutexStack
 
 // Copyright (c) 2014 by Connor Taffe, licensed under
 // the MIT license.
@@ -16,7 +18,6 @@
 // Lexer struct
 typedef struct {
 	FILE *stream; // stream of file
-	FILE *outstream; // stream out
 	FILE *errstream; // stream to error
 	char *name; // name of file
 	char *str; // string read
@@ -27,10 +28,10 @@ typedef struct {
 	int parenDepth; // depth of parenthesis
 	int errors; // number of errors
 	int warns; // number of warns
-	ErrorStack *err; // error buffer
-} Lexer;
+	Stack *err; // error buffer
+	MutexStack *tok; // token stack
 
-const int maxErr = 10;
+} Lexer;
 
 // Errors
 // These functions all lerr (lex error) whith their error text,
@@ -38,62 +39,11 @@ const int maxErr = 10;
 // flusherr MUST be called at nemit before the current line is
 // overwritten, otherwise the error will fail.
 
-// finerr (Final Error)
-// prints final error, either emitting a gnote for the number of
-// errors and warnings or that no errors were emitted.
-void finerr (Lexer *l) {
-	if (l->errors > 0 || l->warns > 0) {
-		char str[30];
-		int i;
-		if (l->errors == 1){i = sprintf(str, "%d error, ", l->errors);}
-		else{i = sprintf(str, "%d errors, ", l->errors);}
-		if (l->warns == 1){sprintf(&str[i-1], " %d warning.", l->warns);}
-		else{sprintf(&str[i-1], " %d warnings.", l->warns);}
-		gnote(str); // general note
-	} else {gnote("no errors emitted.");}
-}
-
-// flusherr (Flush Errors)
-// called on nemit (newline emit) so that all of l.str is avaliable
-// no strcpy or pointer update is needed, because the string is stored
-// in the Lexer struct.
-void flusherr (Lexer *l) {
-	// call _err on all Errors
-	int len = l->err->len; // save length, is reduced in poperr
-	if (len == 0){return;}
-	// Initial checks complete
-	// Add poped errors to que
-	Error *que[len];
-	for (int i = 0; i < len; i++) {
-		Error *err = poperr(l->err); // pop error
-		if (err == NULL){gterr("poperr didn't pop."); return;}
-		que[i] = err;
-	}
-	// error poped errors in opposite order.
-	flockfile(l->errstream); // aquire lock
-	for (int i = len; i > 0; i--) {
-		Error *err = que[i-1];
-		_err(err, l->errstream); // signal error
-		// free allocated errors
-		free(err->str); // free str char []
-		free(err->err); // free err char []
-		//free(err->name); // free err char []
-		//free(err);
-	}
-	fflush(l->errstream); // just in case
-	funlockfile(l->errstream); // release lock
-
-	if (l->errors >= maxErr) {
-		finerr(l); // final error
-		gterr("too many errors");
-	}
-}
-
 // lerr (lex error)
 // Stores all parameters to a buffer.
-void lerr (Lexer *l, char *str, int c, int b, char *err, int diag) {
+void llerr (Lexer *l, char *str, int c, int b, char *err, int diag, int past) {
 	// create error (references may go out of scope).
-	Error ptr = { .read = l->str, .rdlen = &l->e, .line = l->lineNum, .ch = l->e, .c = c, .b = b, .diag = diag, .str = str, .err = err, .name = l->name };
+	Error ptr = { .read = l->str, .rdlen = &l->e, .line = l->lineNum, .ch = l->e, .c = c, .b = b, .diag = diag, .str = str, .err = err, .name = l->name, .past = past};
 
 	// push error to error stack.
 	int e = pusherr(l->err, &ptr);
@@ -103,58 +53,93 @@ void lerr (Lexer *l, char *str, int c, int b, char *err, int diag) {
 	//if (l->err->len > maxQue) {flusherr(l);}
 }
 
-// lerr Wrappers for different styles of errors.
+int tokerr(MutexStack *stack, Error *err) {
+	Token tok = {.type = itemErr, .line = err->line, .ch = err->ch, .str = err->str};
+	return pushtok(stack, &tok);
+}
+
+// flusherr (Flush Errors)
+void flusherr (Stack *stack, MutexStack *tokens) {
+	// call _err on all Errors
+	int len = stack->len; // save length, is reduced in poperr
+	if (len == 0){return;}
+
+	// Instead of popping errors, loop through error stack,
+	// and then reset the stack to a length of 0.
+	for (int i = 0; i < len; i++) {
+		Error *err = stack->stack[i];
+		tokerr(tokens, err); // signal error
+		// free allocated errors
+		free(err->str); free(err->err); free(err->name);
+		free(err); // free actual error
+	}
+	reseterr(stack); // set errors to 0
+}
+
+// Diagnostic errors
+// errors for diagnostic functions in errors such as pointing out
+// offending characters or numbers of characters
+
+// diagnostic lexical errors
+// can highlight past characters
+void lderr (Lexer *l, char *str, int diag, int past) {
+	l->errors++; // increment error count
+	llerr(l, str, 31, 1, "error", diag, past);
+}
+
+// terminal lexical errors
+void ldterr (Lexer *l, char *str, int diag, int past) {
+	llerr(l, str, 31, 1, "fatal error", diag, past); 
+	exit(1); // terminates
+}
+
+// lexical warnings
+void ldwarn (Lexer *l, char *str, int diag, int past) {
+	l->warns++; // increment error count
+	llerr(l, str, 35, 1, "warning", diag, past);
+}
+
+// lexical notes
+void ldnote (Lexer *l, char *str, int diag, int past) {
+	llerr(l, str, 30, 0, "note", diag, past);
+}
+
+// diag err Wrappers for different styles of errors.
 // note, warn, err, terr, in order of least to most fatal.
 // err and terr are of equal magnitude, but terr exits in case
 // one cannot return -1 to the state machine.
 
 // general lexical errors
-void err (Lexer *l, char *str, int diag) {
-	l->errors++; // increment error count
-	lerr(l, str, 31, 1, "error", diag);
-}
+void lerr (Lexer *l, char *str) {lderr(l, str, 0, 0);}
 
 // terminal lexical errors
-void terr (Lexer *l, char *str, int diag) {
-	lerr(l, str, 31, 1, "fatal error", diag); 
-	exit(1); // terminates
-}
+void lterr (Lexer *l, char *str) {ldterr(l, str, 0, 0);}
 
 // lexical warnings
-void warn (Lexer *l, char *str, int diag) {
-	l->warns++; // increment error count
-	lerr(l, str, 35, 1, "warning", diag);
-}
+void lwarn (Lexer *l, char *str) {ldwarn(l, str, 0, 0);}
 
 // lexical notes
-void note (Lexer *l, char *str, int diag) {
-	lerr(l, str, 30, 0, "note", diag);
-}
+void lnote (Lexer *l, char *str) {ldnote(l, str, 0, 0);}
 
 // Emit
 // emit and nemit record tokens and print them.
 // nemit also records a newline, which is needed for accurate
 // error printing.
 
-// emit
-int _emit (Lexer *l, int n) {
-	const char delim = ':'; // set delim to ':'
-	fprintf(l->outstream, "%d", n); putc(delim, l->outstream);
-	fprintf(l->outstream, "%d", l->lineNum); putc(delim, l->outstream);
-	fprintf(l->outstream, "%d", l->e); putc(delim, l->outstream);
-	for (int i = l->b; i < l->e; i++) {
-		putc(l->str[i], l->outstream);
-	}
-	putc(delim, l->outstream);
-	l->b = l->e; // shifts begin to end pos
-	fflush(l->outstream); // flushes buffer to stdout
-	return 0;
+// emit to token stack
+int l_emit (Lexer *l, int n) {
+	// create Token
+	char *str = malloc(100 * sizeof (char));
+	strlcpy(str, &l->str[l->b], (l->e - l->b) + 1);
+	Token tok = {.type = n, .line = l->lineNum, .ch = l->b, .str = str};
+	l->b = l->e;
+	return pushtok(l->tok, &tok);
 }
 
 // lreset resets the lexer to the zeroth index
 void lreset (Lexer *l) {
 	// errors depend on text the scanner keeps.
-	flusherr(l); // flushes all errors
+	flusherr(l->err, l->tok); // flushes all errors
 	l->e = 0; l->b = 0; // resets storage of characters
 }
 
@@ -164,7 +149,7 @@ void lreset (Lexer *l) {
 // and goes back one character in the char array.
 
 // next character
-char next (Lexer *l) {
+char lnext (Lexer *l) {
 	if (l->e >= l->length){
 		l->str = realloc(l->str, (l->e + 10) * sizeof (char));
 	}
@@ -178,11 +163,11 @@ char next (Lexer *l) {
 }
 
 // backup one character
-int backup (Lexer *l) {
+int lbackup (Lexer *l) {
 	if ((l->e - l->b) > 0){
 		l->e--;
 		ungetc(l->str[l->e], l->stream);
 		return 0;
-	} else {terr(l, "negative index", 0);} // error
+	} else {lterr(l, "negative index");} // error
 	return 1; // should never reach
 }
