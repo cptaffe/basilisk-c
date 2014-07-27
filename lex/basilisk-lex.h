@@ -1,10 +1,10 @@
-#include <stdio.h> // printf, putc
-#include <stdlib.h> // calloc, exit
-#include <signal.h> // signal handler
-#include "tok.h" // token header
-#include "lex.h" // lexical scanning library.
-#include "state.h" // state machine
-#include "basilisk.h" // Basilisk type
+#import <stdio.h> // printf, putc
+#import <stdlib.h> // calloc, exit
+#import <signal.h> // signal handler
+#import "../tok/tok.h" // token header
+#import "../lex/lex.h" // lexical scanning library.
+#import "../util/state.h" // state machine
+#import "../basilisk.h" // Basilisk type
 
 // Lexer for some lisp-like langauge
 

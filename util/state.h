@@ -1,9 +1,5 @@
 // Unified state machine structures and functions
 
-// Include guard
-#ifndef STATE
-#define STATE
-
 // state function signature
 typedef int (*stateFun) (void *v);
 
@@ -20,5 +16,3 @@ int state (stateFun state[], void *v) {
 
 	return 0;
 }
-
-#endif // STATE

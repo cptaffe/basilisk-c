@@ -1,11 +1,7 @@
-#include <pthread.h>
-#include <stdlib.h>
-#include "stack.h" // stack super coolness
-#include "gerr.h"
-
-// Include guard.
-#ifndef THREAD
-#define THREAD
+#import <pthread.h>
+#import <stdlib.h>
+#import "stack.h" // stack super coolness
+#import "gerr.h"
 
 // Super simple threads interface
 
@@ -27,5 +23,3 @@ int pwait (Stack *thread) {
 	free(th);
 	return 0;
 }
-
-#endif // THREAD

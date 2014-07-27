@@ -1,7 +1,7 @@
-#include <stdio.h> // stdio for printing.
-#include "gerr.h" // general errors
-#include "tok.h" // tokens
-#include "concurrent.h" // MutexStack
+#import <stdio.h> // stdio for printing.
+#import "../util/gerr.h" // general errors
+#import "../tok/tok.h" // tokens
+#import "../util/concurrent.h" // MutexStack
 
 // Copyright (c) 2014 by Connor Taffe, licensed under
 // the MIT license.

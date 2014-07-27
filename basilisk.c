@@ -1,7 +1,7 @@
-#include "basilisk-lex.h" // lexer
-#include "basilisk-parse.h" // parser
-#include "thread.h" // concurrency
-#include "basilisk.h" // Basilisk type
+#import "lex/basilisk-lex.h" // lexer
+#import "parse/basilisk-parse.h" // parser
+#import "util/thread.h" // concurrency
+#import "basilisk.h" // Basilisk type
 
 // Basilisk main, launches both parser and lexer.
 

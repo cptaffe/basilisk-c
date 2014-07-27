@@ -1,6 +1,6 @@
-#include <strings.h>
-#include "gerr.h" // errors
-#include "concurrent.h" // MutexStack
+#import <strings.h>
+#import "../util/gerr.h" // errors
+#import "../util/concurrent.h" // MutexStack
 
 // Include guard.
 #ifndef TOK

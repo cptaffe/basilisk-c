@@ -1,4 +1,4 @@
-#include <pthread.h>
+#import <pthread.h>
 
 // Simple functions for concurrently working with recourses
 // when using pthreads & Basilisk

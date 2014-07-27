@@ -1,7 +1,3 @@
-// Include guard.
-#ifndef AST
-#define AST
-
 // Abstract Syntax Tree
 
 typedef struct {
@@ -106,5 +102,3 @@ int resetast (AsTree *tree) {
 	tree->len = 0; // zero errors in stack
 	return 0;
 }
-
-#endif // AST

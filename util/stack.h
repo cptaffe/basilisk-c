@@ -1,9 +1,5 @@
 // Consolidated stack management for any type.
 
-// Include guard.
-#ifndef STACK
-#define STACK
-
 // Stack
 typedef struct {
 	void **stack; // stack of void pointers.
@@ -81,5 +77,3 @@ int resetstack(Stack *stack) {
 	stack->len = 0; // zero errors in stack
 	return 0;
 }
-
-#endif // STACK

@@ -1,9 +1,9 @@
-#include <stdlib.h> // calloc, exit, etc.
-#include "tok.h" // token header
-#include "ast.h" // abstract syntax tree
-#include "parse.h" // generic parse header
-#include "state.h" // state machine
-#include "basilisk.h" // Basilisk type
+#import <stdlib.h> // calloc, exit, etc.
+#import "../tok/tok.h" // token header
+#import "ast.h" // abstract syntax tree
+#import "parse.h" // generic parse header
+#import "../util/state.h" // state machine
+#import "../basilisk.h" // Basilisk type
 
 // Parser for some lisp-like langauge
 

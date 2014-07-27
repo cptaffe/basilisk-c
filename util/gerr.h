@@ -1,13 +1,9 @@
-#include <stdio.h>
-#include <stdlib.h> // exit
-#include <strings.h> // strerror, strcpy & strlen
-#include <errno.h> // errno
-#include "stack.h"
-#include "concurrent.h" // MutexStack
-
-// Include guard.
-#ifndef GERR
-#define GERR
+#import <stdio.h>
+#import <stdlib.h> // exit
+#import <strings.h> // strerror, strcpy & strlen
+#import <errno.h> // errno
+#import "stack.h"
+#import "concurrent.h" // MutexStack
 
 // General Errors
 // General Errors are shared error functions.
@@ -116,7 +112,7 @@ int _diag (Error *err, FILE *stream) {
 	int j;
 	if (err->past > 0){err->past--;} // only the number of undls
 	// fills tabs
-	for (int j = 0; j < tabs; j++) {
+	for (j = 0; j < tabs; j++) {
 		str[i] = '\t'; i+= sizeof (char);}
 	// fills spaces
 	for (; j < (err->ch - (err->past + 1)); j++) {
@@ -217,5 +213,3 @@ void finerr (int errors, int warns) {
 		gnote(str); // general note
 	} else {gnote("no errors emitted.");}
 }
-
-#endif // GERR

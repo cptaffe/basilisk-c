@@ -1,6 +1,6 @@
-#include <stdio.h> // printing
-#include <stdlib.h> // calloc, exit, etc.
-#include "gerr.h" // general errors
+#import <stdio.h> // printing
+#import <stdlib.h> // calloc, exit, etc.
+#import "../util/gerr.h" // general errors
 
 // Parser type
 typedef struct {
