@@ -1,6 +1,7 @@
 #import <stdio.h> // printf, putc
 #import <stdlib.h> // calloc, exit
 #import <signal.h> // signal handler
+#import <ctype.h> // isalnum()
 #import "../tok/tok.h" // token header
 #import "../lex/lex.h" // lexical scanning library.
 #import "../util/state.h" // state machine
@@ -11,110 +12,126 @@
 // Lexers
 // lexers absorb text using next & backup
 // they emit text using emit and nemit (\n)
-// they record errors when needed.
-
-void lemit(Lexer *l, int n) {
-	l_emit(l, n);
-	if (n == itemNewLine){lreset(l);}
-}
+// they record errors & dump text when needed.
 
 // is s a space character?
-int isspace (char s) {return s == ' ' || s == '\t';}
+int isseparator (char s) {return s == ' ' || s == '\t' || s == '\n';}
 
 // are there characters not emitted?
 int unemitted (Lexer *l) {return l->e > l->b;}
 
 // function index constants
-const int lexnAll = 0;
-const int lexnList = 1;
+const int lexnList = 0;
+const int lexnAtom = 1;
 const int lexnOp = 2;
-const int lexnSpace = 3;
-const int lexnNum = 4;
+const int lexnNum = 3;
+const int lexnChar = 4;
+const int lexnStr = 5;
 
-// looks for begenning and end of lists
-int lexAll (void *v) {
-	Lexer *l = (Lexer *) v;
-	char c;
-	while((c = lnext(l)) != EOF) {
-		if (c == '\n'){lemit(l, itemNewLine);} // mark newline
-		else if (c == '(') {
-			lemit(l, itemBeginList);
-			l->parenDepth++;
-			return lexnList;
-		} else if (c == ')') {
-			l->parenDepth--;
-			if (l->parenDepth < 0){
-				lderr(l, "too many parens", 1, 0);
-				l->parenDepth++;
-			}
-			lemit(l, itemEndList);
-			if (l->parenDepth > 0) {
-				return lexnList;
-			} else{return lexnAll;}
-		} else {lemit(l, itemErr);} // dump junk
-	}
-	return -1; // EOF
-}
+// list characters
+const char beginList = '(';
+const char endList = ')';
 
-// looks for op tokens
+// list stuff
 int lexList (void *v) {
 	Lexer *l = (Lexer *) v;
-	char c = lnext(l);
-	if (c == EOF){lderr(l, "list prematurely ends", 1, 0); return -1;}
-	else if (c == '\n'){lemit(l, itemNewLine);} // mark newline
-	else if (isspace(c)){lbackup(l); return lexnSpace;}
-	else if (isOp(c)) {lbackup(l); return lexnOp;}
-	else if (c < '9' && c > '0'){lbackup(l); return lexnNum;}
-	else if (c == ')' || c == '('){lbackup(l); return lexnAll;}
-	else {lemit(l, itemErr);} // dump junk
-	return lexnList; // should never reach here.
-}
-
-// lexes some number of integers
-int lexOp (void *v) {
-	Lexer *l = (Lexer *) v;
-	char c = lnext(l); 
-	int op = isOp(c);
-	if (op){lemit(l, op);}
-	else{
-		if(unemitted(l)){lemit(l, itemErr);} // dump junk
-		else{lerr(l, "lexOp did not find any ops");}
+	char c;
+	while((c = lnext(l)) != EOF) {
+		if (c == beginList) {
+			l->parenDepth++;
+			lemit(l, itemBeginList);
+			return lexnOp;
+		} else if (c == endList) {
+			l->parenDepth--;
+			lemit(l, itemEndList);
+			if (l->parenDepth < 0) {
+				lerr(l, "too many parens"); ldump(l); l->parenDepth++;
+				return lexnList;}
+			else if (l->parenDepth == 0){return lexnList;}
+			else{return lexnList;}
+		} else if (isseparator(c)){
+			lemit(l, itemSeparator);
+			return lexnList;
+		} else {
+			char str[] = "unexpected character: %c";
+			sprintf(str, str, l->str[l->b]);
+			lerr(l, str); ldump(l);}
 	}
-	return lexnList;
+	return -1;
 }
 
-// lexes some number of spaces
-// accepts tabs and spaces
-int lexSpace (void *v) {
+// lex operator
+int lexOp (void *v) {
 	Lexer *l = (Lexer *) v;
 	char c;
 	while((c = lnext(l)) != EOF) {
-		// absorb spaces
-		if (!isspace(c)){
+		// eat alphanumeric
+		if (!isalnum(c)) {
 			lbackup(l);
-			if (unemitted(l)){lemit(l, itemSpace);}
-			else{lerr(l, "lexSpace did not find any spaces");}
-			return lexnList;
+			if (unemitted(l)){lemit(l, itemOp);}
+			else{lerr(l, "list missing an operator");}
+			return lexnAtom;
 		}
+	}
+	return -1;
+}
+
+// lexes atoms of any type
+int lexAtom (void *v) {
+	Lexer *l = (Lexer *) v;
+	char c;
+	while((c = lnext(l)) != EOF) {
+		if (c < '9' && c > '0'){return lexnNum;}
+		else if (c == '\''){return lexnChar;}
+		else if (c == '\"'){return lexnStr;}
+		else if (c == ')' || c == '('){lbackup(l); return lexnList;}
+		else if (isseparator(c)){lemit(l, itemSeparator);}
+		else{lerr(l, "unexpected chracter");}
 	}
 	lerr(l, "unexpected EOF");
 	return -1;
 }
 
-// lexes numbers
 int lexNum (void *v) {
 	Lexer *l = (Lexer *) v;
 	char c;
 	while((c = lnext(l)) != EOF) {
-		// absorb numbers
-		if (c > '9' || c < '0'){
+		// eat number
+		if (c > '9' || c < '0') {
 			lbackup(l);
 			if (unemitted(l)){lemit(l, itemNum);}
-			else{lerr(l, "lexNum did not find any numbers");}
-			return lexnList;
+			else{lerr(l, "not a number");}
+			return lexnAtom;
 		}
 	}
-	lerr(l, "unexpected EOF");
+	return -1;
+}
+
+int lexChar (void *v) {
+	Lexer *l = (Lexer *) v;
+	char c;
+	while((c = lnext(l)) != EOF) {
+		// eat char
+		if (c == '\'') {
+			if (unemitted(l)){lemit(l, itemChar);}
+			else{lerr(l, "not a character");}
+			return lexnAtom;
+		}
+	}
+	return -1;
+}
+
+int lexStr (void *v) {
+	Lexer *l = (Lexer *) v;
+	char c;
+	while((c = lnext(l)) != EOF) {
+		// eat string
+		if (c == '\"') {
+			if (unemitted(l)){lemit(l, itemStr);}
+			else{lerr(l, "not a string");}
+			return lexnAtom;
+		}
+	}
 	return -1;
 }
 
@@ -147,16 +164,13 @@ void *lex (void *v) {
 	l.stream = b->stream;
 
 	// Set up lex func array
-	stateFun lexers[] = {lexAll, lexList, lexOp, lexSpace, lexNum};
+	stateFun lexers[] = {lexList, lexAtom, lexOp, lexNum, lexChar, lexStr};
 
 	state(lexers, &l);
-	lemit(&l, itemEOF);
 
-	flusherr(l.err, l.tok); // clear last errors, if any.
+	lemit(&l, itemEOF);
 
 	// Free all resource, nothing can escape!
 	free(l.str); // do not free Basilisk resources though.
-
-	finerr(l.errors, l.warns); // final err
 	return NULL;
 }

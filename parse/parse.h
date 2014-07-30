@@ -8,7 +8,6 @@ typedef struct {
 	int errors;
 	int warns;
 	int parenDepth;
-	Stack *err; // error stack
 	MutexStack *tok; // tok
 	int len; // tok is read from bottom, length read
 	AsTree *root; // root of tree
@@ -24,7 +23,7 @@ typedef struct {
 // perr (parse error), a simplified wrapper for _err
 void pperr(Parser *p, Token *t, char *str, int c, int b, char *err, int diag) {
 	Error ptr = { .read = t->str, .rdlen = &t->ch, .line = t->line, .ch = t->ch, .c = c, .b = b, .diag = diag, .str = str, .err = err, .name = p->name };
-	pusherr(p->err, &ptr);
+	_err(&ptr, stderr);
 }
 
 // general errors

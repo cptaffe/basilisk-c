@@ -2,47 +2,24 @@
 #import "../util/gerr.h" // errors
 #import "../util/concurrent.h" // MutexStack
 
-// Include guard.
-#ifndef TOK
-#define TOK
+// eof
+const int itemEOF = -1;
 
-// miscilaneous tokens
+// error
 const int itemErr = 0;
-const int itemEOF = 1;
-const int itemBeginList = 2;
-const int itemEndList = 3;
 
-const int itemSpace = 10;
-const int itemNewLine = 11;
+// list indicator
+const int itemBeginList = 5;
+const int itemEndList = 6;
 
-// operation tokens
-const int itemAdd = 20;
-const int itemSub = 21;
-const int itemMul = 22;
-const int itemDiv = 23;
+// whitespace (\n, \t, & ' ')
+const int itemSeparator = 10;
 
-// data tokens
-const int itemNum = 30;
-
-// TODO: change to array of {key, num} pairs.
-int isOp(int op) {
-	switch (op) {
-	case '+':
-		return itemAdd;
-	case '-':
-		return itemSub;
-	case '*':
-		return itemMul;
-	case '/':
-		return itemDiv;
-	default:
-		return 0;
-	}
-}
-
-int isOpCode(int op) {
-	return op <= itemDiv && op >= itemAdd;
-}
+// atoms
+const int itemOp = 20;
+const int itemNum = 21;
+const int itemChar = 22;
+const int itemStr = 23;
 
 // Token
 typedef struct {
@@ -91,5 +68,3 @@ int pushtok (MutexStack *stack, Token *tok) {
 int resettok (Stack *stack) {
 	return resetstack(stack);
 }
-
-#endif // TOK

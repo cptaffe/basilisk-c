@@ -75,10 +75,11 @@ void *mnext (MutexStack *stack) {
 }
 
 // Should be called from thread not calling mpush
-void mbackup (MutexStack *stack) {
+int mbackup (MutexStack *stack) {
 	pthread_mutex_lock(stack->lock);
 	stack->index--;
 	pthread_mutex_unlock(stack->lock);
+	return stack->index;
 }
 
 // pops error from an error stack

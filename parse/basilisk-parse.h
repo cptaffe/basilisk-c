@@ -11,13 +11,24 @@
 // parserss absorb text using next & backup
 // they record errors when needed.
 
+const int parsenAll = 0;
+const int parsenList = 1;
+const int parsenOp = 2;
+
+Token *pnext(Parser *p) {
+	Token *t = mnext(p->tok);
+	if (t->type == itemEOF){return NULL;}
+	else if (t->type == itemErr){perr(p, t, t->str, 0); p->errors++;}
+	return t;
+}
+
 // parse for beginning and end to list
 int parseAll(void *v) {
 	Parser *p = (Parser *) v;
 	Token *t;
-	while((t = mnext(p->tok)) != NULL){
+	while((t = pnext(p)) != NULL){
 		if (t->type == itemBeginList){
-			p->parenDepth++; return 1; // parseList
+			p->parenDepth++; return parsenList;
 		} else if (t->type == itemEndList){
 			p->parenDepth--;
 			if (p->parenDepth > 0) {return 1;}
@@ -25,8 +36,8 @@ int parseAll(void *v) {
 				perr(p, t, "too many parens", 0);
 				p->parenDepth++; // avoid further errors
 			}
-			return 0;
-		} // parseAll
+			return parsenAll;
+		}
 	}
 	return -1;
 }
@@ -35,10 +46,9 @@ int parseAll(void *v) {
 int parseList(void *v) {
 	Parser *p = (Parser *) v;
 	Token *t;
-	while((t = mnext(p->tok)) != NULL){
-		if (isOpCode(t->type)) {
-			puts(t->str); putc(':', stdout);
-			return 2; // parseOp
+	while((t = pnext(p)) != NULL){
+		if (t->type == itemOp) {
+			return parsenOp; // parseOp
 		}
 	}
 	return -1;
@@ -48,11 +58,10 @@ int parseList(void *v) {
 int parseOp(void *v) {
 	Parser *p = (Parser *) v;
 	Token *t;
-	while((t = mnext(p->tok)) != NULL){
-		if (t->type == itemNum) {
-			puts(t->str); putc(',', stdout);
-		} else if (t->type == itemEndList) {
-			mbackup(p->tok); return 0;
+	while((t = pnext(p)) != NULL){
+		if (t->type == itemNum || t->type == itemChar || t->type == itemStr) {
+		} else if (t->type == itemEndList || t->type == itemBeginList) {
+			mbackup(p->tok); return parsenAll;
 		}
 	}
 	return -1;
@@ -73,9 +82,6 @@ void *parse (void *v) {
 	p.name = b->name;
 	p.tok = b->tok;
 
-	p.err = initstack();
-	if (p.err == NULL){gerr("stack didn't init"); return NULL;}
-
 	// create root of ast
 	p.root = malloc(sizeof(AsTree));
 	p.root->node = NULL; // no node on root
@@ -87,14 +93,17 @@ void *parse (void *v) {
 	// Set up parse func array
 	stateFun parsers[] = {parseAll, parseList, parseOp};
 
-	Token *tok;
+	/*Token *tok;
 	while ((tok = (Token *) mnext(p.tok)) != NULL) {
-		if (tok->type == itemEOF){break;}
-		char *str = calloc(30, sizeof (char));
-		sprintf(str, "recieved: %s", tok->str);
-		gnote(str);
+		if (tok->type == itemEOF){gnote("EOF"); break;}
+		if (tok->type == itemErr){perr(&p, tok, tok->str, 0);}
+		else {
+			char *str = calloc(30, sizeof (char));
+			sprintf(str, "%d: %s", tok->type, tok->str);
+			gnote(str);
+		}
 	}
-	return NULL;
+	//return NULL;*/
 
 	state(parsers, &p);
 
